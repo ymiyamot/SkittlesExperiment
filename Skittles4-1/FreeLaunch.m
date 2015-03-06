@@ -1,0 +1,230 @@
+classdef FreeLaunch < handle
+    properties
+        w
+        woff
+        resx
+        resy
+        %Colors
+        white = [256 256 256];
+        red = [200 0 0] ;
+        green = [0 200 0] ;
+        blue = [0 0 200];
+        yellow = [200 200 0];
+        darkblue = [20 20 100];
+        black = [0 0 0];   
+        grey = [40 40 40];   
+        %Positions
+        originRect = [0 0 25 25];
+        targetRect
+        origin
+        targetSize = 50;
+        wrkspc_loc;
+        wrkspc_R;
+        BlockSize = 40;
+        txtsz = 30;
+        bbox
+        bbox2
+        startvisrange = 100;
+        click_cx
+        click_cy
+        click_r
+        initial_click_r = 10;
+        disp_x
+        disp_y
+        cursor_r = 5;
+        minicursor_r = 2;
+        dotframe_r = 50;
+        Score = NaN;
+        dots_shown;
+        dotlocs;
+        scoremax;
+        score_absmax;
+        dottexture;
+        % Pole center
+        launchBarX;
+        launchBarY;
+        startBarX;
+        startBarY;
+        midBarX;
+        % Lever length
+        barheiLaunch = 300;
+        barheiStart = 150;
+        barwidLaunch = 50;
+        barwidStart = 20;
+        % Pixel to meter conversion
+        pix2m = 5 / 1080;
+        % state of lever
+        buffer = NaN(6000, 3);
+        state = 0;
+        vx = NaN;
+        vy = NaN;
+        v = NaN;
+        targloc;
+        
+        % Scaling of screen
+        scaleFac = 3/4;
+        cx;
+        cy;
+        
+        % start and end time
+        tstart
+        tend
+        initrange = 10;
+        threshvelStart = 10;
+        threshvelStop = 10;
+    end
+    methods
+        function D = FreeLaunch(startBarX, startBarY, launchBarX, launchBarY, targloc)
+            % Input arguments are: x and y coordinates of lever axis
+            disp('Initializing Free Launch')
+
+            D.launchBarX = launchBarX;
+            D.launchBarY = launchBarY;
+            D.startBarX = startBarX;
+            D.startBarY = startBarY;
+            D.midBarX = (launchBarX - startBarX) * 0.35 + startBarX;
+            D.targloc = targloc;
+            
+            windowPtrs = Screen('Windows');
+            
+            if isempty(windowPtrs),
+                Screen('Preference', 'VBLTimestampingMode', -1);
+                Screen('Preference', 'TextRenderer',1);
+                [D.w(1), wRect] = Screen('OpenWindow', 0);
+                [D.w(2),~] = Screen('OpenOffscreenWindow',0);
+                [D.w(3),~] = Screen('OpenOffscreenWindow',0);
+
+                Screen('TextFont',D.w(1), 'Courier New');
+                Screen('TextSize',D.w(1), D.txtsz);
+                Screen('TextStyle', D.w(1), 1+2);
+
+                % Compute bounding box of textstring:
+                D.bbox = ceil(Screen('TextBounds', D.w(1), '100.0'));
+                D.bbox2 = ceil(Screen('TextBounds', D.w(1), 'Performance: 100%'));
+
+                % Create offscreen window of sufficient size, with a background color
+                % that matches the wanted background color, and a alpha value of zero:
+                D.woff(1) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], D.bbox);
+                D.woff(2) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], D.bbox);
+                D.woff(3) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], D.bbox2);
+                D.woff(4) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], [0, 0, 2 * D.dotframe_r, 2 * D.dotframe_r]);
+
+                % Set same text properties for woff as for w:
+                Screen('TextFont',D.woff(1), 'Courier New');
+                Screen('TextSize',D.woff(1), 30);
+                Screen('TextStyle', D.woff(1), 1+2);
+                Screen('TextFont',D.woff(2), 'Courier New');
+                Screen('TextSize',D.woff(2), 30);
+                Screen('TextStyle', D.woff(2), 1+2);
+                Screen('TextFont',D.woff(3), 'Courier New');
+                Screen('TextSize',D.woff(3), 30);
+                Screen('TextStyle', D.woff(3), 1+2);
+
+                D.resx = wRect(3);
+                D.resy = wRect(4);    
+                
+
+            else
+                D.w(1) = windowPtrs(1);
+                D.w(2) = windowPtrs(2);
+                D.w(3) = windowPtrs(3);
+                D.woff(1) = windowPtrs(4);
+                D.woff(2) = windowPtrs(5);
+                D.woff(3) = windowPtrs(6);
+                D.woff(4) = windowPtrs(7);
+                
+                wRect=Screen('Rect', D.w(1));
+                D.resx = wRect(3);
+                D.resy = wRect(4);  
+            end            
+            HideCursor;
+            
+            % Pole location (screen center)
+            D.cx = D.resx / 4; % pole x location
+            D.cy = D.resy / 2; % pole y location
+            
+            %Clear Screen
+            Screen('FillRect', D.w(3), [1 0 0]);
+
+            %%%%%% Draw release & start bar %%%%%%
+            Screen('FillRect', D.w(3), D.green, CenterRectOnPoint([0, 0, D.scaleFac * D.barwidLaunch, D.scaleFac * D.barheiLaunch], D.scalePresentX(D.launchBarX), D.scalePresentY(D.launchBarY)))
+            Screen('FillRect', D.w(3), D.green, CenterRectOnPoint([0, 0, D.scaleFac * D.barwidLaunch, D.scaleFac * D.barheiLaunch], D.resx - D.scalePresentX(D.launchBarX), D.resy - D.scalePresentY(D.launchBarY)))
+            
+            Screen('FillRect', D.w(3), D.grey, CenterRectOnPoint([0, 0, D.scaleFac * D.barwidStart, D.scaleFac * D.barheiStart], D.scalePresentX(D.startBarX), D.scalePresentY(D.startBarY)))
+            Screen('FillRect', D.w(3), D.grey, CenterRectOnPoint([0, 0, D.scaleFac * D.barwidStart, D.scaleFac * D.barheiStart], D.resx - D.scalePresentX(D.startBarX), D.resy - D.scalePresentY(D.startBarY)))
+
+            %%%%%% Draw target %%%%%%
+            %     Experimenter screen
+            Screen('FillOval', D.w(3), D.red, CenterRectOnPoint([0, 0, 5, 5], D.scalePresentX(targloc(1)), D.scalePresentY(targloc(2))));
+            Screen('FrameOval', D.w(3), D.red, CenterRectOnPoint([0, 0, 15, 15], D.scalePresentX(targloc(1)), D.scalePresentY(targloc(2))));
+            Screen('FrameOval', D.w(3), D.red, CenterRectOnPoint([0, 0, 25, 25], D.scalePresentX(targloc(1)), D.scalePresentY(targloc(2))));
+            
+            % Subject screen
+            Screen('FillOval', D.w(3), D.red, CenterRectOnPoint([0, 0, 5, 5], D.resx - D.scalePresentX(targloc(1)), D.resy - D.scalePresentY(targloc(2))));
+            Screen('FrameOval', D.w(3), D.red, CenterRectOnPoint([0, 0, 15, 15], D.resx - D.scalePresentX(targloc(1)), D.resy - D.scalePresentY(targloc(2))));
+            Screen('FrameOval', D.w(3), D.red, CenterRectOnPoint([0, 0, 25, 25], D.resx - D.scalePresentX(targloc(1)), D.resy - D.scalePresentY(targloc(2))));
+
+            %Make a copy of screen for faster refreshing
+            D.Recopy(3,2);
+            D.Recopy(3,1);
+            
+            Screen('Flip', D.w(1));
+            
+            disp('Finished initializing Free Launch')
+        end
+        
+        function [xposSc] = scalePresentX(D, xpos)
+            xposSc = (xpos - D.cx) * D.scaleFac + D.cx;
+        end
+        function [yposSc] = scalePresentY(D, ypos)
+            yposSc = (ypos - D.cy) * D.scaleFac + D.cy;
+        end
+        function Recopy(D, src, des)
+            Screen('CopyWindow', D.w(src), D.w(des), [0 0 D.resx D.resy], [0 0 D.resx D.resy]);        
+        end
+        
+        function Redraw(D, S, recopyFlag)
+            if recopyFlag,
+                D.Recopy(2,1);
+            end
+            
+            % Draw cursor
+            % See cursor on both screens
+            if D.state == 1,
+                % Screen Subject (right)
+                Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 3 * D.cursor_r, 3 * D.cursor_r], D.resx - D.scalePresentX(S.x(end)), D.resy - D.scalePresentY(S.y(end))));
+                Screen('FillOval', D.w(1), D.grey, CenterRectOnPoint([0, 0, 2 * D.cursor_r, 2 * D.cursor_r], D.resx - D.scalePresentX(S.x(end)), D.resy - D.scalePresentY(S.y(end))));
+                
+                %Screen Experimenter (left)
+                Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 3 * D.cursor_r, 3 * D.cursor_r], D.scalePresentX(S.x(end)), D.scalePresentY(S.y(end))));
+                Screen('FillOval', D.w(1), D.grey, CenterRectOnPoint([0, 0, 2 * D.cursor_r, 2 * D.cursor_r], D.scalePresentX(S.x(end)), D.scalePresentY(S.y(end))));
+            elseif D.state ~= 1,
+                % Screen Subject (right)
+                Screen('FillOval', D.w(1), D.grey, CenterRectOnPoint([0, 0, 2 * D.cursor_r, 2 * D.cursor_r], D.resx - D.scalePresentX(S.x(end)), D.resy - D.scalePresentY(S.y(end))));
+                
+                %Screen Experimenter (left)
+                Screen('FillOval', D.w(1), D.grey, CenterRectOnPoint([0, 0, 2 * D.cursor_r, 2 * D.cursor_r], D.scalePresentX(S.x(end)), D.scalePresentY(S.y(end))));
+            end           
+            Screen('Flip', D.w(1), [], [], 1);
+        end
+        
+        function UpdateBuffer(D, S)
+            % Shift old samples forward
+            D.buffer(1:end-length(S.x), :) = D.buffer(1 + length(S.x):end, :);
+
+            % Add new samples to back
+            D.buffer(end - length(S.x) + 1:end, :) = [S.x, S.y, S.t];
+            
+            % Update velocity samples
+            D.vx = diff(D.buffer(end - 1:end, 1)) / diff(D.buffer(end - 1:end, 3)); % pixel units
+            D.vy = -diff(D.buffer(end - 1:end, 2)) / diff(D.buffer(end - 1:end, 3)); % pixel units
+            D.v = sqrt(D.vx^2 + D.vy^2);
+        end
+        
+        function Finish(D)
+            disp('Drawer Finish')
+            pause(2);
+            Screen('CloseAll');
+        end
+    end %methods
+end %classdef
