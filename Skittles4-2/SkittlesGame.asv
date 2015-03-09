@@ -1,6 +1,6 @@
 function SkittlesGame(subject_name, dayNum)
 
-    %%% On Day 2, no baseline blocks %%%
+    %%% On Da
     if dayNum == 1,
         dirName = subject_name;
         baseblocks = 2;
@@ -16,27 +16,32 @@ function SkittlesGame(subject_name, dayNum)
     for bl = 1:baseblocks,
         fprintf('Block %d: baseline', bl);
         keyboard;
-        Tester(subject_name, bl, blockLen, 1, dayNum, dirName);
+        Tester(subject_name, bl, blockLen, 1);
     end
     
     %%% Training blocks with feedback %%%
     for bl=baseblocks + 1:totalblocks,
         fprintf('Block %d: training', bl);
         keyboard;
-        Tester(subject_name, bl, blockLen, 0, dayNum, dirName);
+        Tester(subject_name, bl, blockLen, 0, dirName);
     end
 end
 
-function Tester(subject_name, blocknum, total_trials, baseMode, dayNum, dirName)
+function Tester(subject_name, blocknum, total_trials, baseMode, dirName)
 try
 
     
     % Variable for recording data
     tabletRec = NaN(1000000, 4);
     tabletCt = 0;
+    
+%     nzlevels = [0, 0];
+%     [targloc0, targloc] = deal([1200, 270]);
+%     [targloc0, targloc] = deal(targloc);
+        
 
     % Simulation parameters
-    feedbackMode = 2;
+    feedbackMode = 5;
 
     if baseMode == 1,
         targloc = [NaN NaN];
@@ -76,24 +81,21 @@ try
     
     % retrieve history for history-dependent reward
     histwin = 25;
-    % No history for baseline blocks and initial block.
-    if (dayNum == 1 && blocknum == 3) ...
-            || baseMode == 1 ...
-            || (dayNum == 2 && blocknum == 1),
+    if blocknum == 3 || baseMode == 1, % Assuming two baseline blocks
         threshbuffer = NaN(50, 1);
         threshbuffer(50) = 200;
     else
-        rec = csvimport([dirName, '/', subject_name, '_trialrecord_', ...
+        rec = csvimport([subject_name, '/', subject_name, '_trialrecord_', ...
             char('a' + blocknum - 2), '.csv']);
         distHist = rec(2:end, 10);
         recVec = NaN(size(distHist));
         
         % Parsing for NaNs
-        for dist_i = 1:length(distHist),
-            if ~isnan(distHist{dist_i}) && all('string' == class(distHist{dist_i}))
-                recVec(dist_i) = str2num(distHist{dist_i});
-            elseif ~isnan(distHist{dist_i}) && all('double' == class(distHist{dist_i}))
-                recVec(dist_i) = distHist{dist_i};
+        for tmp_i = 1:length(distHist),
+            if ~isnan(tmp{tmp_i}) && all('string' == class(tmp{tmp_i}))
+                recVec(tmp_i) = str2num(tmp{tmp_i});
+            elseif ~isnan(tmp{tmp_i}) && all('double' == class(tmp{tmp_i}))
+                recVec(tmp_i) = tmp{tmp_i};
             end
         end
         threshbuffer = recVec;

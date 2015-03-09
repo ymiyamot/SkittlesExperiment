@@ -1,0 +1,424 @@
+classdef FBSimulator < handle
+    properties
+        w
+        woff
+        resx
+        resy
+        %Colors
+        white = [256 256 256];
+        red = [200 0 0] ;
+        green = [0 200 0] ;
+        blue = [0 0 200];
+        yellow = [200 200 0];
+        darkblue = [20 20 100];
+        black = [0 0 0];   
+        grey = [40 40 40];   
+        %Positions
+        originRect = [0 0 25 25];
+        targetRect
+        origin
+        targetSize = 50;
+        wrkspc_loc;
+        wrkspc_R;
+        BlockSize = 40;
+        txtsz = 30;
+        bbox
+        bbox2
+        startvisrange = 100;
+        click_cx
+        click_cy
+        click_r
+        initial_click_r = 10;
+        disp_x
+        disp_y
+        cursor_r = 5;
+        minicursor_r = 2;
+        dotframe_r = 50;
+        Score = NaN;
+        dots_shown;
+        dotlocs;
+        scoremax;
+        score_absmax;
+        dottexture;
+        % Pole center
+        cx;
+        cy;
+        % Simulation Constants
+
+        % Pixel to meter conversion
+        pix2m = 5 / 1080 / 100 * 2.54;
+        % Target
+        targloc
+        % sound effect
+        sound
+        woosh
+        boom
+    end
+    methods
+        function D = FBSimulator(targloc)
+            disp('Initializing FB Simulator')
+            windowPtrs = Screen('Windows');
+            
+            if isempty(windowPtrs),
+                Screen('Preference', 'VBLTimestampingMode', -1);
+                Screen('Preference', 'TextRenderer',1);
+                [D.w(1), wRect] = Screen('OpenWindow', 0);
+                [D.w(2),~] = Screen('OpenOffscreenWindow',0);
+                [D.w(3),~] = Screen('OpenOffscreenWindow',0);
+
+                Screen('TextFont',D.w(1), 'Courier New');
+                Screen('TextSize',D.w(1), D.txtsz);
+                Screen('TextStyle', D.w(1), 1+2);
+
+                % Compute bounding box of textstring:
+                D.bbox = ceil(Screen('TextBounds', D.w(1), '100.0'));
+                D.bbox2 = ceil(Screen('TextBounds', D.w(1), 'Performance: 100%'));
+
+                % Create offscreen window of sufficient size, with a background color
+                % that matches the wanted background color, and a alpha value of zero:
+                D.woff(1) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], D.bbox);
+                D.woff(2) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], D.bbox);
+                D.woff(3) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], D.bbox2);
+                D.woff(4) = Screen('OpenOffscreenwindow', D.w(1), [0 0 0 0], [0, 0, 2 * D.dotframe_r, 2 * D.dotframe_r]);
+
+                % Set same text properties for woff as for w:
+                Screen('TextFont',D.woff(1), 'Courier New');
+                Screen('TextSize',D.woff(1), 30);
+                Screen('TextStyle', D.woff(1), 1+2);
+                Screen('TextFont',D.woff(2), 'Courier New');
+                Screen('TextSize',D.woff(2), 30);
+                Screen('TextStyle', D.woff(2), 1+2);
+                Screen('TextFont',D.woff(3), 'Courier New');
+                Screen('TextSize',D.woff(3), 30);
+                Screen('TextStyle', D.woff(3), 1+2);
+
+                D.resx = wRect(3);
+                D.resy = wRect(4);    
+                
+
+            else
+                D.w(1) = windowPtrs(1);
+                D.w(2) = windowPtrs(2);
+                D.w(3) = windowPtrs(3);
+                D.woff(1) = windowPtrs(4);
+                D.woff(2) = windowPtrs(5);
+                D.woff(3) = windowPtrs(6);
+                D.woff(4) = windowPtrs(7);
+                
+                % Set same text properties for woff as for w:
+                Screen('TextFont',D.woff(1), 'Courier New');
+                Screen('TextSize',D.woff(1), 30);
+                Screen('TextStyle', D.woff(1), 1+2);
+                Screen('TextFont',D.woff(2), 'Courier New');
+                Screen('TextSize',D.woff(2), 30);
+                Screen('TextStyle', D.woff(2), 1+2);
+                Screen('TextFont',D.woff(3), 'Courier New');
+                Screen('TextSize',D.woff(3), 30);
+                Screen('TextStyle', D.woff(3), 1+2);
+                
+                wRect=Screen('Rect', D.w(1));
+                D.resx = wRect(3);
+                D.resy = wRect(4);
+                
+                % Compute bounding box of textstring:
+                D.bbox = ceil(Screen('TextBounds', D.w(1), '100.0'));
+                D.bbox2 = ceil(Screen('TextBounds', D.w(1), 'Performance: 100%'));
+            end            
+            
+            % Set the pole center
+            D.cx = D.resx / 4;
+            D.cy = D.resy / 2;
+            D.targloc = targloc;
+            HideCursor;
+            
+            D.sound = load('audiofiles/ting');
+            D.sound.ting = D.sound.ting(1:17640, :)';
+            
+            
+            [tmpsnd, fs] = wavread('audiofiles/woosh1.wav');
+            D.woosh.woosh = tmpsnd';
+            D.woosh.fs = fs;
+            
+            [tmpsnd, fs] = wavread('audiofiles/damage.wav');
+            D.boom.boom = tmpsnd';
+            D.boom.fs = fs;
+            %Clear Screen
+%             Screen('FillRect', D.w(3), [1 0 0]);
+
+            % Draw barrier
+            % Experimenter screen
+            Screen('DrawLine',  D.w(3), D.grey, D.cx, D.cy, D.resx / 2, D.cy, 5)
+            % Subject screen
+            Screen('DrawLine',  D.w(3), D.grey, D.resx - D.cx, D.resy - D.cy, D.resx - D.resx / 2, D.resy - D.cy, 5)
+        
+            %Make a copy of screen for faster refreshing
+            D.Recopy(3,2);
+            D.Recopy(3,1);
+            
+            D.Draw_Target;
+            
+            Screen('Flip', D.w(1));
+            
+            disp('Finished initializing FB Simulator')
+        end
+        
+        function [x, y, d, score] = SkittlesSimulation(D, xr, yr, vx, vy, speed, L, explode_time, wait_time, drawscore, rwdthresh, feedback_on)
+%             Snd('Play', D.woosh.woosh, D.woosh.fs * 2);
+            % xr, yr are in pixel units
+            % vx, vy are in pixel units
+            
+            % Rotate the coordinates to adjust for screen coordinates
+            xr_cent = (xr - D.cx); % pixel units
+            yr_cent = -(yr - D.cy); % pixel units
+
+%             if speed >= 10,
+%                 dt = 0.01;
+%             else
+%                 dt = 0.001; % sec
+%             end
+            dt = 0.01;
+            total_time = 4; % sec 
+            
+            z = -sqrt((L^2 - xr_cent^2 - yr_cent^2));
+            disp([xr_cent, yr_cent, z]);
+            disp([vx, vy, 0])
+            pos = PenDynamics([xr_cent, yr_cent, z], [vx, vy, 0], dt, total_time, L);
+            x_cent = pos(:, 1);
+            y_cent = pos(:, 2);
+            
+            x = x_cent + D.cx; % pixel units (uncentered)
+            y = -y_cent + D.cy; % pixel units (uncentered)
+            
+            if any(x < 0) || any(x > 1920) || any(y < 0) || any(y > 1080)
+               sound(0.75 * sin((1:3000)/12))
+            end
+            t = 0:dt:total_time;
+            
+            dists = sqrt(bsxfun(@minus, x, D.targloc(1)).^2 + bsxfun(@minus, y, D.targloc(2)).^2);
+            explode_ind = explode_time / dt;
+            d = dists(explode_ind);
+%             d = min(dists);            
+            score = d;
+            endsimind = explode_ind;
+            
+            sim_start = getSecs;
+            if speed >=10,
+                if feedback_on,
+                    for i = 2:endsimind,
+                        Screen('DrawLine',  D.w(2), D.green, x(i - 1), y(i - 1), x(i), y(i));
+                        Screen('DrawLine',  D.w(2), D.green, D.resx - x(i - 1), D.resy - y(i - 1), D.resx - x(i), D.resy - y(i));
+                    end
+                    %                 D.Recopy(2, 1);
+                    %                 Screen('Flip', D.w(1), [], [], 1);
+                else
+                    for i = 2:endsimind,
+                        Screen('DrawLine',  D.w(2), D.green, x(i - 1), y(i - 1), x(i), y(i));
+%                         Screen('DrawLine',  D.w(2), D.green, D.resx - x(i - 1), D.resy - y(i - 1), D.resx - x(i), D.resy - y(i));
+                    end
+                end
+            else
+                ct = 1;
+                while(ct <= endsimind),
+                    curr_time = getSecs - sim_start;
+                    t2 = min(find(curr_time > t / speed, 1, 'last'), endsimind);
+                    for i = ct:t2,
+                        %                 if curr_time > (t(ct) * speed)
+                        if feedback_on,
+                            if i > 1,
+                                Screen('DrawLine',  D.w(2), D.green, x(i - 1), y(i - 1), x(i), y(i));
+                                Screen('DrawLine',  D.w(2), D.green, D.resx - x(i - 1), D.resy - y(i - 1), D.resx - x(i), D.resy - y(i));
+                            end
+                        else
+                            if i > 1,
+                                Screen('DrawLine',  D.w(2), D.green, x(i - 1), y(i - 1), x(i), y(i));
+%                                 Screen('DrawLine',  D.w(2), D.green, D.resx - x(i - 1), D.resy - y(i - 1), D.resx - x(i), D.resy - y(i));
+                            end
+                        end
+                        
+                        
+                    end
+                    if feedback_on,
+                        D.Recopy(2, 1);
+%                         Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 10, 10], x(t2), y(t2)));
+                        %                     Screen('DrawLine',  D.w(1), D.grey, D.cx, D.cy, x(ct), y(ct));
+                        Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 10, 10], D.resx - x(t2), D.resy - y(t2)));
+                        %                     Screen('DrawLine',  D.w(1), D.grey, D.resx - D.cx, D.resy - D.cy, D.resx - x(ct), D.resy - y(ct));
+                        Screen('Flip', D.w(1), [], [], 1);
+                    else
+                        D.Recopy(2, 1);
+                        Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 10, 10], x(t2), y(t2)));
+%                                             Screen('DrawLine',  D.w(1), D.grey, D.cx, D.cy, x(ct), y(ct));
+%                         Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 10, 10], D.resx - x(t2), D.resy - y(t2)));
+                        %                     Screen('DrawLine',  D.w(1), D.grey, D.resx - D.cx, D.resy - D.cy, D.resx - x(ct), D.resy - y(ct));
+                        Screen('Flip', D.w(1), [], [], 1);
+                    end
+                    
+                    if y(t2) <= D.cy & y(ct) > D.cy & x(t2) > D.cx
+                        disp('barrier')
+                        %                     sound(sin(1:500));
+                        score = -1;
+                        break;
+                    end
+                    ct = t2 + 1;
+                end
+            end
+
+
+% ct = 1;
+% while(ct <= endsimind),
+%     curr_time = getSecs - sim_start;
+%     t2 = min(find(curr_time > t / speed, 1, 'last'), endsimind);
+%     for i = ct:t2,
+%     end
+%     
+%     if y(t2) <= D.cy & y(ct) > D.cy & x(t2) > D.cx
+%         disp('barrier')
+%         %                     sound(sin(1:500));
+%         score = -1;
+%         break;
+%     end
+%     ct = t2 + 1;
+% end
+
+
+            getSecs - sim_start
+%             if score < 15 && score >= 0,
+%                 %play ding
+%                 Snd('Play', D.sound.ting, D.sound.fs);
+%             else
+%                 Snd('Play', 0.1*D.boom.boom, D.boom.fs* 3);
+%                 
+% 
+%             end
+            
+%             if score < rwdthresh,
+%                 tt1 = getSecs;
+%                 D.Explosion(300, 0.2);
+%                 Snd('Play', D.sound.ting, D.sound.fs);
+%                 disp(getSecs - tt1)
+%             else
+%                 tt1 = getSecs;
+% %                 D.Explosion(300, 0.2);
+%                 Snd('Play', 0.1*D.boom.boom, D.boom.fs* 2);
+%                 disp(getSecs - tt1)
+%             end
+tt1 = getSecs;
+%                 D.Explosion(300, 0.2);
+Snd('Play', 0.1*D.boom.boom, D.boom.fs* 2);
+disp(getSecs - tt1)
+            
+            D.Score = score;
+            if drawscore,
+                D.DrawScore();
+            end
+            D.Recopy(2, 1);
+            Screen('Flip', D.w(1), [], [], 1);
+            
+            while(1)
+                if getSecs - sim_start > wait_time,
+                    break;
+                end
+            end
+            D.Recopy(3, 2);
+
+            D.Recopy(2, 1);
+            Screen('Flip', D.w(1), [], [], 1);
+        end
+        
+        function Draw_Target(D)
+            % Draw target
+            % Experimenter screen
+            Screen('FillOval', D.w(2), D.red, CenterRectOnPoint([0, 0, 5, 5], D.targloc(1), D.targloc(2)));
+            Screen('FrameOval', D.w(2), D.red, CenterRectOnPoint([0, 0, 15, 15], D.targloc(1), D.targloc(2)));
+            Screen('FrameOval', D.w(2), D.red, CenterRectOnPoint([0, 0, 25, 25], D.targloc(1), D.targloc(2)));
+            % Subject screen
+            Screen('FillOval', D.w(2), D.red, CenterRectOnPoint([0, 0, 5, 5], D.resx - D.targloc(1), D.resy - D.targloc(2)));
+            Screen('FrameOval', D.w(2), D.red, CenterRectOnPoint([0, 0, 15, 15], D.resx - D.targloc(1), D.resy - D.targloc(2)));
+            Screen('FrameOval', D.w(2), D.red, CenterRectOnPoint([0, 0, 25, 25], D.resx - D.targloc(1), D.resy - D.targloc(2)));
+        end
+        function Explosion(D, outerR, explode_time)
+            explode_start = getSecs();
+            numlayers = 10;
+            rlist = linspace(1, outerR, numlayers);
+            layertime = explode_time / numlayers;
+            ct = 0;
+            while(ct < numlayers)
+                if getSecs() - explode_start > ct * layertime
+                    ct = ct + 1;
+                    D.Recopy(2, 1);
+                    Screen('FillOval', D.w(1), D.red, CenterRectOnPoint([0, 0, rlist(ct), rlist(ct)], D.targloc(1), D.targloc(2)));
+                    Screen('FillOval', D.w(1), D.red, CenterRectOnPoint([0, 0, rlist(ct), rlist(ct)], D.resx - D.targloc(1), D.resy - D.targloc(2)));
+                    Screen('Flip', D.w(1), [], [], 1);
+                end
+            end
+        end
+        function Recopy(D, src, des)
+            Screen('CopyWindow', D.w(src), D.w(des), [0 0 D.resx D.resy], [0 0 D.resx D.resy]);        
+        end
+        
+        function Redraw(D, state, S)
+            D.Recopy(2,1);
+            
+            % Draw cursor
+            switch state
+                case 0
+                    % Screen Subject (right)
+                    Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 2 * D.cursor_r, 2 * D.cursor_r],D.resx-S.x(end),D.resy-S.y(end)));                    
+
+                    %Screen Experimenter (left)
+                    Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 2 * D.cursor_r, 2 * D.cursor_r],S.x(end),S.y(end)));
+                    
+                    D.disp_x = S.x(end);
+                    D.disp_y = S.y(end);
+                case 1
+                    % Calculation of constrained cursor
+                    theta = atan2(S.y(end) - D.click_cy, S.x(end) - D.click_cx);
+                    constr_y = D.click_cy + D.click_r * sin(theta);
+                    constr_x = D.click_cx + D.click_r * cos(theta);
+%                     disp([constr_x, constr_y]);
+                    
+                    %Screen Experimenter (left)
+                    Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 2 * D.minicursor_r, 2 * D.minicursor_r],S.x(end),S.y(end)));
+                    Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 2 * D.cursor_r, 2 * D.cursor_r], constr_x, constr_y));
+                    D.DrawDashedLine(D.w(1), D.green, constr_x, constr_y, S.x(end), S.y(end), 10)
+                    
+                    % Screen Subject (right)
+                    Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0, 0, 2 * D.minicursor_r, 2 * D.minicursor_r], D.resx - S.x(end), D.resy - S.y(end)));                    
+                    Screen('FillOval', D.w(1), D.green, CenterRectOnPoint([0 0 2 * D.cursor_r 2 * D.cursor_r], D.resx - constr_x, D.resy - constr_y));
+                    DrawDashedLine(D, D.w(1), D.green, D.resx - constr_x, D.resy - constr_y, D.resx - S.x(end), D.resy - S.y(end), 10)
+                    
+                    D.disp_x = constr_x;
+                    D.disp_y = constr_y;
+                case 2
+                    
+            end
+            
+            if ~isnan(D.Score),
+%                 D.DrawScore();
+                D.DrawDots();
+            end            
+            Screen('Flip', D.w(1), [], [], 1);
+        end
+        function DrawScore(D)
+            text = strcat('Distance: ', num2str(D.Score));
+            scorecol = [50 255 0];
+
+            Screen('FillRect', D.woff(3), [1 1 1])
+            Screen('DrawText', D.woff(3), text, 0, 0, scorecol); 
+            rect = ScaleRect(D.bbox2, 0.5, 0.5);
+            Screen('DrawTexture', D.w(2), D.woff(3), [], OffsetRect(rect, 960 - rect(3) / 2, 540 + 5), 0);
+            Screen('DrawTexture', D.w(2), D.woff(3), [], OffsetRect(rect, D.resx - 960 - rect(3) / 2, D.resy - 540 - 30), 180);
+            
+            
+
+            
+            
+            
+        end
+        function Finish(D)
+            disp('Drawer Finish')
+            pause(2);
+            Screen('CloseAll');
+        end
+    end %methods
+end %classdef

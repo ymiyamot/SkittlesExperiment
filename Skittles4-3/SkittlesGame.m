@@ -1,38 +1,42 @@
-function SkittlesGame(subject_name)
-    mkdir(subject_name); 
+function SkittlesGame(subject_name, dayNum)
+
+    %%% On Day 2, no baseline blocks %%%
+    if dayNum == 1,
+        dirName = subject_name;
+        baseblocks = 2;
+    else
+        dirName = [subject_name, 'Day2']; 
+        baseblocks = 0;
+    end
+    mkdir(dirName);
     totalblocks = 30;
-    baseblocks = 2;
     blockLen = 50;
     
-%     for bl = 1:baseblocks,
-%         fprintf('Block %d: baseline', bl);
-%         keyboard;
-%         Tester(subject_name, bl, blockLen, 1);
-%     end
+    %%% Baseline blocks with no feedback %%%
+    for bl = 1:baseblocks,
+        fprintf('Block %d: baseline', bl);
+        keyboard;
+        Tester(subject_name, bl, blockLen, 1, dayNum, dirName);
+    end
     
+    %%% Training blocks with feedback %%%
     for bl=baseblocks + 1:totalblocks,
-%     for bl=10:totalblocks,
         fprintf('Block %d: training', bl);
         keyboard;
-        Tester(subject_name, bl, blockLen, 0);
+        Tester(subject_name, bl, blockLen, 0, dayNum, dirName);
     end
 end
 
-function Tester(subject_name, blocknum, total_trials, baseMode)
+function Tester(subject_name, blocknum, total_trials, baseMode, dayNum, dirName)
 try
 
     
     % Variable for recording data
     tabletRec = NaN(1000000, 4);
     tabletCt = 0;
-    
-%     nzlevels = [0, 0];
-%     [targloc0, targloc] = deal([1200, 270]);
-%     [targloc0, targloc] = deal(targloc);
-        
 
     % Simulation parameters
-    feedbackMode = 1.5;
+    feedbackMode = 4;
 
     if baseMode == 1,
         targloc = [NaN NaN];
@@ -68,25 +72,28 @@ try
     
     % Load audio
     ting = load('audiofiles/ting');
-    ting.ting = ting.ting(1:17640, :)';
+    ting.ting = ting.ting(401:end, :)';
     
     % retrieve history for history-dependent reward
     histwin = 25;
-    if blocknum == 3 || baseMode == 1, % Assuming two baseline blocks
+    % No history for baseline blocks and initial block.
+    if (dayNum == 1 && blocknum == 3) ...
+            || baseMode == 1 ...
+            || (dayNum == 2 && blocknum == 1),
         threshbuffer = NaN(50, 1);
         threshbuffer(50) = 200;
     else
-        rec = csvimport([subject_name, '/', subject_name, '_trialrecord_', ...
+        rec = csvimport([dirName, '/', subject_name, '_trialrecord_', ...
             char('a' + blocknum - 2), '.csv']);
         distHist = rec(2:end, 10);
         recVec = NaN(size(distHist));
         
         % Parsing for NaNs
-        for tmp_i = 1:length(distHist),
-            if ~isnan(tmp{tmp_i}) && all('string' == class(tmp{tmp_i}))
-                recVec(tmp_i) = str2num(tmp{tmp_i});
-            elseif ~isnan(tmp{tmp_i}) && all('double' == class(tmp{tmp_i}))
-                recVec(tmp_i) = tmp{tmp_i};
+        for dist_i = 1:length(distHist),
+            if ~isnan(distHist{dist_i}) && all('string' == class(distHist{dist_i}))
+                recVec(dist_i) = str2num(distHist{dist_i});
+            elseif ~isnan(distHist{dist_i}) && all('double' == class(distHist{dist_i}))
+                recVec(dist_i) = distHist{dist_i};
             end
         end
         threshbuffer = recVec;
@@ -98,7 +105,8 @@ try
         'pendulumLength', 'distFromTarg', 'releaseTime', ...
         'releaseInd', 'feedbackStartTime', 'feedbackStartInd', ...
         'feedbackEndTime', 'feedbackEndInd', 'waitTime', 'rwd', ...
-        'rwdThresh', 'historyWindowLength', 'numFails'};
+        'rwdThresh', 'historyWindowLength', 'numFails', ...
+        'startTime', 'startInd'};
     record = NaN(total_trials, length(header));
     
     [~,~, mouse] = GetMouse; % Detect if mouse was pressed for aborting experiment
@@ -124,11 +132,18 @@ try
                 % Turned cursor green and is ready for launch
                 disp('Ready to launch. state 1')
                 LL.state = 1;
+                startTime = curr_t;
+                startInd = tabletCt;
             elseif LL.state == 1 && (S.x(samp_i) < LL.midBarX && (abs(S.y(samp_i) - LL.startBarY) <= LL.barheiLaunch / 2))
                 disp('Launched ball. state 2')
                 
                 LL.state = 2;
+                
+                % Time of release
                 launchTime = getSecs;
+                releaseTime = launchTime - init_t;
+                releaseInd = tabletCt;
+
                 simRun = true;
                 simTrigger = true;
 
@@ -138,6 +153,8 @@ try
                     && LL.v < LL.threshvelStop) ...
                     || (S.x(samp_i) < LL.launchBarX - LL.barwidLaunch / 2) ...
                     || abs(S.y(samp_i) - LL.launchBarY) > LL.barheiLaunch),
+                
+                Snd('Quiet');
                 % If the hand doesn't end up at the launch bar, then abort trial.
                 disp('Did not reach launch bar. state 0')
                 disp((~(abs(S.x(samp_i) - LL.launchBarX) <= LL.barwidLaunch / 2 && abs(S.y(samp_i) - LL.launchBarY) <= LL.barheiLaunch / 2) && LL.v < LL.threshvelStop))
@@ -156,7 +173,6 @@ try
                 % Clear trajectory off screen
                 LL.Recopy(3, 2);
                 LL.Recopy(2, 1);
-                
                 sound(0.1*sin(1:500));
                 numFails = numFails + 1;
                 
@@ -220,10 +236,6 @@ try
             explodeInd = explodeTime / dt + 1;
             d = dists(explodeInd);
             
-            % Time of release
-            releaseTime = curr_t;
-            releaseInd = tabletCt;
-
             %%%%%%%%%%%%%%%%%%%%%%%%
 
             % Update history
@@ -443,10 +455,22 @@ try
                     disp('Finished simulation. state 0')
                     
                     if d < rwdthresh,
+                        %%%%%% Color target %%%%%%
+                        %     Experimenter screen
+%                         Screen('FillOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 5, 5], LL.scalePresentX(targloc(1)), LL.scalePresentY(targloc(2))));
+%                         Screen('FrameOval', LL.w(2), LL.yellow, CenterRectOnPoint([0, 0, 15, 15], LL.scalePresentX(targloc(1)), LL.scalePresentY(targloc(2))));
+                        Screen('FrameOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 100, 100], LL.scalePresentX(targloc(1)), LL.scalePresentY(targloc(2))));
+                        
+                        % Subject screen
+%                         Screen('FillOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 5, 5], LL.resx - LL.scalePresentX(targloc(1)), LL.resy - LL.scalePresentY(targloc(2))));
+%                         Screen('FrameOval', LL.w(2), LL.yellow, CenterRectOnPoint([0, 0, 15, 15], LL.resx - LL.scalePresentX(targloc(1)), LL.resy - LL.scalePresentY(targloc(2))));
+                        Screen('FrameOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 100, 100], LL.resx - LL.scalePresentX(targloc(1)), LL.resy - LL.scalePresentY(targloc(2))));
+
                         Snd('Play', ting.ting, ting.fs);
+                    else
+                        sound(0.1*sin(2 * (1:500)));
                     end
-                    sound(0.1*sin(2 * (1:500)));
-                    
+                    disp(sprintf('time since launch2: %f', getSecs - launchTime))
                     waitStart = getSecs;
                     waitTime = 1;
                     ITIStart = getSecs;
@@ -471,7 +495,7 @@ try
             
             elseif feedbackMode == 5,
                 %%%%%% Delayed Reward feedback %%%%%%
-                 if isnan(delayFeedbackStart),
+                if isnan(delayFeedbackStart),
                     delayFeedbackStart = launchTime;
                 end
                 if getSecs - delayFeedbackStart > 2,
@@ -494,9 +518,22 @@ try
                     disp('Finished simulation. state 0')
                     
                     if d < rwdthresh,
+                        %%%%%% Color target %%%%%%
+                        %     Experimenter screen
+%                         Screen('FillOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 5, 5], LL.scalePresentX(targloc(1)), LL.scalePresentY(targloc(2))));
+%                         Screen('FrameOval', LL.w(2), LL.yellow, CenterRectOnPoint([0, 0, 15, 15], LL.scalePresentX(targloc(1)), LL.scalePresentY(targloc(2))));
+                        Screen('FrameOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 100, 100], LL.scalePresentX(targloc(1)), LL.scalePresentY(targloc(2))));
+                        
+                        % Subject screen
+%                         Screen('FillOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 5, 5], LL.resx - LL.scalePresentX(targloc(1)), LL.resy - LL.scalePresentY(targloc(2))));
+%                         Screen('FrameOval', LL.w(2), LL.yellow, CenterRectOnPoint([0, 0, 15, 15], LL.resx - LL.scalePresentX(targloc(1)), LL.resy - LL.scalePresentY(targloc(2))));
+                        Screen('FrameOval', LL.w(2), LL.green, CenterRectOnPoint([0, 0, 100, 100], LL.resx - LL.scalePresentX(targloc(1)), LL.resy - LL.scalePresentY(targloc(2))));
+
                         Snd('Play', ting.ting, ting.fs);
+                    else
+                        sound(0.1*sin(2 * (1:500)));
                     end
-                    sound(0.1 * sin(2 * (1:500)));
+                    
                     LL.state = 0;
                     simRun = false;
                     launchTime = NaN;
@@ -527,8 +564,9 @@ try
             record(trial, :) = [px, py, vx, vy, targloc(1), targloc(2), ...
                 feedbackMode, explodeTime, L, d, releaseTime, releaseInd, ...
                 waitStart - init_t, feedbackInd, curr_t, tabletCt, ...
-                waitTime, d < rwdthresh, rwdthresh, histwin, numFails];
-            csvwrite_with_headers([subject_name, '/', subject_name, ...
+                waitTime, d < rwdthresh, rwdthresh, histwin, numFails, ...
+                startTime, startInd];
+            csvwrite_with_headers([dirName, '/', subject_name, ...
                 '_trialrecord_', char('a' + blocknum - 1), '.csv'], ...
                 record(1:trial, :), header);
             
@@ -548,7 +586,7 @@ try
     % Save all tablet recordings
     tabletRec = tabletRec(1:tabletCt, :);
     tabletRecHeader = {'x', 'y', 'tabletTime', 'computerTime'};
-    save([subject_name, '/', subject_name, '_tabletRec_', ...
+    save([dirName, '/', subject_name, '_tabletRec_', ...
         char('a' + blocknum - 1)], 'tabletRec', 'tabletRecHeader')    
 
     LL.Finish;

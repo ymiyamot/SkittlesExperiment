@@ -36,7 +36,7 @@ try
     tabletCt = 0;
 
     % Simulation parameters
-    feedbackMode = 2;
+    feedbackMode = 5;
 
     if baseMode == 1,
         targloc = [NaN NaN];
